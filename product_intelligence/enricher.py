@@ -39,7 +39,44 @@ try:  # structlog is present in the API/worker, absent in bare unit tests
     logger = structlog.get_logger(__name__)
 except Exception:  # pragma: no cover
     import logging
-    logger = logging.getLogger(__name__)
+
+    class _KwargLogger:
+        """stdlib logging with structlog's keyword style.
+
+        Every call site here logs structlog-fashion — ``logger.warning("msg",
+        product=..., error=...)``. stdlib logging rejects those kwargs with
+        ``Logger._log() got an unexpected keyword argument``, so without this
+        shim the fallback crashed exactly where it was meant to save us: in the
+        handler for an LLM that is already down.
+        """
+
+        def __init__(self, inner):
+            self._inner = inner
+
+        def _emit(self, level, event, **fields):
+            if fields:
+                rendered = " ".join(f"{k}={v!r}" for k, v in fields.items())
+                self._inner.log(level, "%s %s", event, rendered)
+            else:
+                self._inner.log(level, "%s", event)
+
+        def debug(self, event, **f):
+            self._emit(logging.DEBUG, event, **f)
+
+        def info(self, event, **f):
+            self._emit(logging.INFO, event, **f)
+
+        def warning(self, event, **f):
+            self._emit(logging.WARNING, event, **f)
+
+        def error(self, event, **f):
+            self._emit(logging.ERROR, event, **f)
+
+        def exception(self, event, **f):
+            self._inner.exception("%s %s", event,
+                                  " ".join(f"{k}={v!r}" for k, v in f.items()))
+
+    logger = _KwargLogger(logging.getLogger(__name__))
 
 
 #: Fields the LLM is allowed to propose. Anything outside this list is dropped,
