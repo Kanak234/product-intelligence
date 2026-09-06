@@ -1,0 +1,20 @@
+node_modules/
+__pycache__/
+*.pyc
+.env
+.env.*
+!*.env.example
+*.pem
+*.key
+credentials*
+venv/
+.venv/
+target/
+dist/
+build/
+*.gguf
+*.pt
+*.safetensors
+
+# redundant nested clone of the already-published fasal-kavach-new (tchva) repo
+New Folder/

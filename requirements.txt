@@ -1,0 +1,5 @@
+streamlit>=1.37
+# Catalogue readers. Imported lazily by product_intelligence/ingestion.py:
+# without them the app still runs and PDF/Excel uploads return a clear message.
+pypdf>=4.2.0
+openpyxl>=3.1.0

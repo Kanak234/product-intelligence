@@ -1,0 +1,32 @@
+# Dependencies for the full stack only — API, persistence, cache, vector store,
+# background jobs.
+#
+# Deliberately NOT in requirements.txt. Streamlit Community Cloud installs
+# requirements.txt, and the cloud deployment must stay a single process with
+# nothing to configure. Adding these there would slow every build and give the
+# cloud app dependencies it cannot use.
+#
+#   pip install -r requirements-platform.txt
+
+-r requirements.txt
+
+# HTTP API
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+
+# Persistence
+SQLAlchemy>=2.0
+psycopg2-binary>=2.9
+
+# Cache and broker
+redis>=5.0
+
+# Background jobs
+celery>=5.3
+
+# Vector search. Runs embedded with QDRANT_URL=":memory:" — no server needed.
+qdrant-client>=1.9
+
+# Local model client
+httpx>=0.27

@@ -1,0 +1,16 @@
+# Keep the build context small. Anything listed here is never copied into the
+# image, which also means it can never accidentally end up published.
+.git
+.gitignore
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+*.tar.gz
+*.log
+.DS_Store
+.env
+.env.*

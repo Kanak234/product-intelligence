@@ -1,0 +1,146 @@
+# The full stack, in the stages described in DOCKER.md.
+#
+# Profiles let you bring services up one stage at a time, which is the whole
+# point of the staged plan: a failure with two services running has two
+# plausible causes, not ten.
+#
+#   docker compose up --build                          stage 1: the app alone
+#   docker compose --profile data up --build           + Postgres and Redis
+#   docker compose --profile full up --build           + API, worker, Qdrant
+#   docker compose --profile llm up --build            + the local model
+#
+#   docker compose --profile test run --rm test        run the suite in-container
+#   docker compose down -v                             stop and remove volumes
+#
+# The `app` service works at every stage. It picks up DATABASE_URL and
+# REDIS_URL when they resolve and runs stateless when they do not, so bringing
+# a profile up adds capability without changing how the app is started.
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/product_intel
+  REDIS_URL: redis://redis:6379/0
+  QDRANT_URL: http://qdrant:6333
+  OLLAMA_BASE_URL: http://ollama:11434
+  OLLAMA_MODEL: qwen2.5:7b-instruct
+  # Off by default even when the container is up: a model that is still being
+  # pulled would otherwise make every enrichment wait for a timeout.
+  ENABLE_LLM: "0"
+
+services:
+  # -- stage 1 ---------------------------------------------------------------
+  app:
+    build:
+      context: .
+      target: base
+    image: product-intel:latest
+    container_name: product-intel-app
+    ports:
+      - "8501:8501"
+    environment:
+      <<: *app-env
+    restart: unless-stopped
+
+  test:
+    build:
+      context: .
+      target: test
+    image: product-intel:test
+    profiles: ["test"]
+    command: ["pytest", "-q"]
+
+  # -- stage 2: persistence --------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    profiles: ["data", "full", "llm"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: product_intel
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Without this the app starts before Postgres accepts connections, fails to
+    # connect, and the cause looks like a bug in the app.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # -- stage 3: cache and background jobs -----------------------------------
+  redis:
+    image: redis:7-alpine
+    profiles: ["data", "full", "llm"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      target: base
+    image: product-intel:latest
+    profiles: ["full", "llm"]
+    command: ["uvicorn", "pi_platform.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      target: base
+    image: product-intel:latest
+    profiles: ["full", "llm"]
+    command: ["celery", "-A", "pi_platform.worker.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    environment:
+      <<: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # -- stage 4: vector search -----------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    profiles: ["full", "llm"]
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  # -- stage 5: the local model ---------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["llm"]
+    ports:
+      - "11434:11434"
+    volumes:
+      # Named volume so the weights survive `docker compose down`. Re-pulling
+      # several gigabytes every time is how people give up on this stage.
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+volumes:
+  pgdata:
+  qdrant_data:
+  ollama_models:

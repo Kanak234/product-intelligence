@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Product Intelligence</title>
+<style>
+/* ---------------------------------------------------------------------------
+   Palette encodes provenance rather than decorating it.
+
+   Values read from the source sit on a verdigris ramp that darkens with trust.
+   Values the model generated break to amber — a different hue, not a lighter
+   shade, because "generated" is a different kind of thing from "read", not a
+   weaker version of it. Assumed defaults fall to grey.
+
+   Every origin colour below is the same colour used in the gauge, the pill and
+   the ladder, so the reader learns the scale once.
+--------------------------------------------------------------------------- */
+:root{
+  --ground:#EDEFF0;
+  --panel:#F7F8F8;
+  --ink:#14181B;
+  --ink-soft:#5A646B;
+  --ink-faint:#8E979D;
+  --rule:#D2D7D9;
+  --rule-firm:#B4BBBE;
+
+  --o-input:#0B4F45;
+  --o-extracted:#12756A;
+  --o-derived:#2E8F84;
+  --o-taxonomy:#5AA79E;
+  --o-llm:#B4761A;
+  --o-default:#9AA2A7;
+
+  --critical:#8C2F26;
+  --major:#B4761A;
+  --minor:#5A646B;
+  --info:#5AA79E;
+
+  /* No webfonts, by design. This platform is offline-first — the whole point
+     is that nothing leaves the machine — so a page that fetches fonts from a
+     third party on every load would contradict the product and fail outright
+     in an air-gapped deployment. The identity is carried by the monospace
+     labelling, the provenance palette and the gauge instead.
+
+     To use a specific face, self-host it and add it to the front of these
+     stacks; do not reintroduce a CDN link. */
+  --display:ui-sans-serif,"Segoe UI Variable Display","SF Pro Display",
+            -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --body:ui-sans-serif,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",
+         Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono","Roboto Mono",
+         Menlo,Consolas,monospace;
+
+  --step:8px;
+}
+
+*{box-sizing:border-box}
+
+html{-webkit-text-size-adjust:100%}
+
+body{
+  margin:0;
+  background:var(--ground);
+  color:var(--ink);
+  font-family:var(--body);
+  font-size:15px;
+  line-height:1.55;
+}
+
+/* Fine grid, like the backing paper of a calibration chart. Kept very low
+   contrast so it reads as texture, not as a table. */
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  background-image:linear-gradient(var(--rule) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--rule) 1px,transparent 1px);
+  background-size:32px 32px;
+  opacity:.35;
+  z-index:0;
+}
+
+.shell{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:0 24px 96px}
+
+/* -- header ---------------------------------------------------------------- */
+
+header{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:24px;
+  flex-wrap:wrap;
+  padding:36px 0 20px;
+  border-bottom:2px solid var(--ink);
+}
+
+.wordmark{font-family:var(--display);font-weight:700;font-size:29px;letter-spacing:-.02em;line-height:1.05;margin:0}
+.wordmark span{display:block;font-size:11px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-soft);margin-top:6px}
+
+.status{display:flex;gap:18px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.status div{display:flex;align-items:center;gap:6px;color:var(--ink-soft)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--rule-firm);flex:none}
+.dot.on{background:var(--o-extracted)}
+.dot.off{background:var(--o-default)}
+
+/* -- the provenance ladder: the one thing to remember ---------------------- */
+
+.ladder{margin:22px 0 30px;border:1px solid var(--rule-firm);background:var(--panel)}
+.ladder h2{
+  margin:0;padding:11px 16px;
+  font-family:var(--mono);font-size:11px;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);
+  border-bottom:1px solid var(--rule);
+}
+.rungs{display:grid;grid-template-columns:repeat(6,1fr)}
+.rung{padding:13px 14px;border-right:1px solid var(--rule);position:relative}
+.rung:last-child{border-right:0}
+.rung b{display:block;font-family:var(--display);font-size:13px;font-weight:700;letter-spacing:.01em}
+.rung i{display:block;font-family:var(--mono);font-size:19px;font-style:normal;font-weight:500;margin-top:2px}
+.rung small{display:block;color:var(--ink-soft);font-size:11.5px;line-height:1.4;margin-top:5px}
+.rung::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px}
+
+/* -- layout ---------------------------------------------------------------- */
+
+.cols{display:grid;grid-template-columns:340px 1fr;gap:28px;align-items:start}
+
+.panel{border:1px solid var(--rule-firm);background:var(--panel)}
+.panel > h2{
+  margin:0;padding:11px 16px;
+  font-family:var(--mono);font-size:11px;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);
+  border-bottom:1px solid var(--rule);
+}
+.panel-body{padding:16px}
+
+/* -- form ------------------------------------------------------------------ */
+
+.tabs{display:flex;border-bottom:1px solid var(--rule)}
+.tab{
+  flex:1;padding:11px 8px;background:none;border:0;border-right:1px solid var(--rule);
+  font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-soft);cursor:pointer;
+}
+.tab:last-child{border-right:0}
+.tab[aria-selected="true"]{background:var(--ink);color:var(--ground)}
+.tab:focus-visible{outline:2px solid var(--o-extracted);outline-offset:-2px}
+
+label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin:14px 0 5px}
+label:first-child{margin-top:0}
+
+input[type=text],textarea{
+  width:100%;padding:9px 10px;
+  border:1px solid var(--rule-firm);border-radius:0;background:#fff;
+  font-family:var(--mono);font-size:13px;color:var(--ink);
+}
+textarea{resize:vertical;line-height:1.5}
+input[type=text]:focus,textarea:focus{outline:2px solid var(--o-extracted);outline-offset:-1px;border-color:var(--o-extracted)}
+
+.hint{font-size:11.5px;color:var(--ink-faint);margin-top:4px;line-height:1.45}
+
+.switches{display:flex;gap:16px;margin-top:16px;flex-wrap:wrap}
+.switch{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-soft);cursor:pointer}
+.switch input{accent-color:var(--o-extracted);width:15px;height:15px}
+.switch input:disabled{cursor:not-allowed}
+.switch.muted{color:var(--ink-faint)}
+
+button.go{
+  width:100%;margin-top:18px;padding:12px;
+  background:var(--ink);color:var(--ground);border:0;
+  font-family:var(--display);font-size:14px;font-weight:700;letter-spacing:.04em;
+  cursor:pointer;
+}
+button.go:hover:not(:disabled){background:var(--o-input)}
+button.go:disabled{background:var(--rule-firm);cursor:not-allowed}
+button.go:focus-visible{outline:2px solid var(--o-extracted);outline-offset:2px}
+
+.examples{margin-top:14px;border-top:1px solid var(--rule);padding-top:12px}
+.examples p{margin:0 0 7px;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+.chip{
+  display:block;width:100%;text-align:left;margin-bottom:5px;padding:7px 9px;
+  background:#fff;border:1px solid var(--rule);
+  font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);cursor:pointer;
+}
+.chip:hover{border-color:var(--o-derived);color:var(--ink)}
+.chip:focus-visible{outline:2px solid var(--o-extracted);outline-offset:-1px}
+
+/* -- results --------------------------------------------------------------- */
+
+#out{min-height:220px}
+
+.empty{
+  border:1px dashed var(--rule-firm);background:var(--panel);
+  padding:52px 26px;text-align:center;
+}
+.empty b{display:block;font-family:var(--display);font-size:17px;font-weight:700}
+.empty p{margin:8px auto 0;max-width:44ch;color:var(--ink-soft);font-size:13.5px}
+
+.err{border:1px solid var(--critical);background:#fff;padding:16px}
+.err b{font-family:var(--display);color:var(--critical);display:block;margin-bottom:4px}
+.err p{margin:0;font-size:13.5px;color:var(--ink-soft)}
+.err code{font-family:var(--mono);font-size:12px;background:var(--ground);padding:1px 4px}
+
+.resulthead{border:1px solid var(--rule-firm);background:var(--panel);padding:17px 18px}
+.resulthead h3{margin:0;font-family:var(--display);font-size:20px;font-weight:700;letter-spacing:-.01em;line-height:1.25}
+.path{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);margin-top:7px}
+.path span{color:var(--ink-faint)}
+
+.metrics{display:flex;gap:26px;flex-wrap:wrap;margin-top:14px;padding-top:13px;border-top:1px solid var(--rule)}
+.metric b{display:block;font-family:var(--mono);font-size:21px;font-weight:500;line-height:1.1}
+.metric span{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft)}
+
+.block{margin-top:18px;border:1px solid var(--rule-firm);background:var(--panel)}
+.block > h4{
+  margin:0;padding:10px 16px;
+  font-family:var(--mono);font-size:11px;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);
+  border-bottom:1px solid var(--rule);
+  display:flex;justify-content:space-between;gap:12px;
+}
+.block > h4 em{font-style:normal;color:var(--ink-faint);letter-spacing:.06em}
+
+/* Signature: every specification is a gauge showing measured confidence
+   against the ceiling its origin imposes. The notch is the ceiling. A value
+   can approach it and never pass it, which is the rule the whole engine is
+   built on, drawn rather than described. */
+.spec{display:grid;grid-template-columns:150px 1fr;gap:0;border-bottom:1px solid var(--rule)}
+.spec:last-child{border-bottom:0}
+.spec-k{
+  padding:12px 14px;border-right:1px solid var(--rule);
+  font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);
+  word-break:break-word;
+}
+.spec-v{padding:12px 16px;min-width:0}
+.spec-top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.val{font-family:var(--display);font-size:17px;font-weight:700;letter-spacing:-.01em}
+.unit{font-family:var(--mono);font-size:12.5px;color:var(--ink-soft)}
+.pill{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  padding:2px 6px;color:#fff;margin-left:auto;white-space:nowrap;
+}
+
+.gauge{position:relative;height:5px;background:var(--rule);margin-top:9px}
+.gauge i{position:absolute;left:0;top:0;bottom:0;display:block}
+/* The ceiling mark sits above the track so it stays visible when the bar
+   reaches it. */
+.gauge u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);text-decoration:none}
+.gauge-l{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-top:4px}
+
+.why{margin-top:7px;font-size:12.5px;color:var(--ink-soft);line-height:1.45}
+.why code{font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+
+.finding{padding:12px 16px;border-bottom:1px solid var(--rule);border-left:3px solid var(--rule-firm)}
+.finding:last-child{border-bottom:0}
+.finding.critical{border-left-color:var(--critical)}
+.finding.major{border-left-color:var(--major)}
+.finding.minor{border-left-color:var(--minor)}
+.finding.info{border-left-color:var(--info)}
+.finding b{font-family:var(--display);font-size:13.5px;font-weight:700}
+.finding p{margin:3px 0 0;font-size:13px;color:var(--ink-soft)}
+.finding .rid{font-family:var(--mono);font-size:10px;color:var(--ink-faint);letter-spacing:.05em}
+
+.prose{padding:14px 16px;font-size:13.5px;line-height:1.6;color:var(--ink-soft)}
+.prose strong{color:var(--ink)}
+
+.tags{display:flex;flex-wrap:wrap;gap:6px;padding:14px 16px}
+.tag{font-family:var(--mono);font-size:11px;padding:3px 7px;background:#fff;border:1px solid var(--rule);color:var(--ink-soft)}
+
+table.cat{width:100%;border-collapse:collapse;font-size:13px}
+table.cat th,table.cat td{padding:9px 16px;text-align:left;border-bottom:1px solid var(--rule)}
+table.cat th{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);font-weight:500}
+table.cat tr:last-child td{border-bottom:0}
+table.cat td.num{font-family:var(--mono);text-align:right}
+table.cat tbody tr.bad td:first-child{color:var(--critical)}
+table.cat tbody tr.pick{cursor:pointer}
+table.cat tbody tr.pick:hover{background:#fff}
+table.cat tbody tr.pick[aria-expanded="true"]{background:#fff}
+table.cat tbody tr.pick td:first-child::after{content:" ›";color:var(--ink-faint)}
+table.cat tbody tr.pick[aria-expanded="true"] td:first-child::after{content:" ⌄"}
+tr.detail > td{padding:0;background:#fff}
+tr.detail .block{margin:0;border:0;border-top:1px solid var(--rule)}
+
+.note{padding:13px 16px;font-size:13px;color:var(--ink-soft)}
+.note b{color:var(--ink)}
+
+.dl{display:flex;gap:10px;padding:13px 16px;flex-wrap:wrap}
+.dl a{
+  font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  padding:7px 12px;border:1px solid var(--rule-firm);background:#fff;color:var(--ink);text-decoration:none;
+}
+.dl a:hover{border-color:var(--o-derived)}
+
+.working{font-family:var(--mono);font-size:12px;color:var(--ink-soft);padding:22px 0}
+.working::after{content:"";animation:dots 1.2s steps(4,end) infinite}
+@keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms!important;transition-duration:.001ms!important}
+  .working::after{content:"..."}
+}
+
+@media (max-width:940px){
+  .cols{grid-template-columns:1fr}
+  .rungs{grid-template-columns:repeat(3,1fr)}
+  .rung:nth-child(3){border-right:0}
+  .rung:nth-child(-n+3){border-bottom:1px solid var(--rule)}
+}
+@media (max-width:560px){
+  .shell{padding:0 14px 60px}
+  .rungs{grid-template-columns:repeat(2,1fr)}
+  .rung:nth-child(odd){border-right:1px solid var(--rule)}
+  .rung:nth-child(even){border-right:0}
+  .rung:nth-child(-n+4){border-bottom:1px solid var(--rule)}
+  .spec{grid-template-columns:1fr}
+  .spec-top .pill{margin-left:0;order:9}
+  .spec-k{border-right:0;border-bottom:1px solid var(--rule);padding-bottom:6px}
+  .wordmark{font-size:24px}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<header>
+  <h1 class="wordmark">Product Intelligence<span>Structured · attributed · checked</span></h1>
+  <div class="status" id="status" aria-live="polite">
+    <div><span class="dot" id="d-api"></span>API</div>
+    <div><span class="dot" id="d-db"></span>Storage</div>
+    <div><span class="dot" id="d-cache"></span>Cache</div>
+    <div><span class="dot" id="d-llm"></span>Model</div>
+  </div>
+</header>
+
+<section class="ladder">
+  <h2>Where a value can come from — and how far it is trusted</h2>
+  <div class="rungs" id="rungs"></div>
+</section>
+
+<div class="cols">
+
+  <!-- request ------------------------------------------------------------ -->
+  <form class="panel" id="form">
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab" role="tab" aria-selected="true" data-mode="single">One product</button>
+      <button type="button" class="tab" role="tab" aria-selected="false" data-mode="catalogue">Catalogue</button>
+    </div>
+    <div class="panel-body">
+
+      <div id="pane-single">
+        <label for="f-name">Product name</label>
+        <input type="text" id="f-name" placeholder="ABB M3BP 160MLA 11kW 400V IE3 motor" autocomplete="off">
+
+        <label for="f-desc">Description <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
+        <textarea id="f-desc" rows="3" placeholder="Cast iron frame, IP55, continuous duty"></textarea>
+
+        <label for="f-attrs">Attributes <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
+        <textarea id="f-attrs" rows="3" placeholder="supplier: Grundfos&#10;part_number: 96084166"></textarea>
+        <p class="hint">One per line, as <code>key: value</code>.</p>
+      </div>
+
+      <div id="pane-catalogue" hidden>
+        <label for="f-list">Product names</label>
+        <textarea id="f-list" rows="9" placeholder="ABB M3BP 160MLA 11kW 400V IE3 motor&#10;Grundfos CR 5-10 pump 3 bar&#10;Siemens 3RV2011 breaker 400V 6.3A"></textarea>
+        <p class="hint">One product per line. Cross-record checks run across the whole set.</p>
+      </div>
+
+      <div class="switches">
+        <label class="switch" for="f-persist" style="margin:0">
+          <input type="checkbox" id="f-persist" checked> Save results
+        </label>
+        <label class="switch muted" for="f-llm" id="llm-switch" style="margin:0">
+          <input type="checkbox" id="f-llm" disabled> Use local model
+        </label>
+      </div>
+
+      <button type="submit" class="go" id="go">Analyse</button>
+
+      <div class="examples" id="examples">
+        <p>Try one</p>
+        <button type="button" class="chip" data-ex="ABB M3BP 160MLA 11kW 400V 50Hz IE3 three-phase motor">Three-phase motor</button>
+        <button type="button" class="chip" data-ex="Grundfos CR 5-10 centrifugal pump 3 bar stainless steel">Centrifugal pump</button>
+        <button type="button" class="chip" data-ex="Siemens 3RV2011 motor protection circuit breaker 400V 6.3A">Circuit breaker</button>
+      </div>
+
+    </div>
+  </form>
+
+  <!-- results ------------------------------------------------------------ -->
+  <div id="out">
+    <div class="empty">
+      <b>Nothing analysed yet</b>
+      <p>Enter a product name, or pick one of the examples. Every value that comes
+         back carries where it came from and how far that source can be trusted.</p>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+"use strict";
+
+/* Same origin when served by the API. Override with ?api=http://host:8000 for
+   a frontend hosted separately — the API must then allow the origin. */
+const API = new URLSearchParams(location.search).get("api") || "";
+
+/* Mirrors ORIGIN_TRUST in product_intelligence/schema.py. Kept here so the
+   ceiling can be drawn without a round trip; if the engine's ceilings ever
+   change, change them here too. */
+const ORIGINS = [
+  ["input",     1.00, "Given to us",     "Supplied verbatim in the source record."],
+  ["extracted", 0.95, "Read from text",  "Matched by a deterministic rule on the source."],
+  ["derived",   0.85, "Calculated",      "Computed from other values that were read."],
+  ["taxonomy",  0.80, "Classified",      "Assigned by the category rules."],
+  ["llm",       0.65, "Model-generated", "Proposed by the local model, never overriding a read value."],
+  ["default",   0.30, "Assumed",         "A category default, used when nothing else was found."]
+];
+const CEILING = Object.fromEntries(ORIGINS.map(o => [o[0], o[1]]));
+const COLOUR  = Object.fromEntries(ORIGINS.map(o => [o[0], `var(--o-${o[0]})`]));
+
+const $  = s => document.querySelector(s);
+const el = (t, c) => { const n = document.createElement(t); if (c) n.className = c; return n; };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+
+/* -- the ladder ---------------------------------------------------------- */
+(function ladder(){
+  const host = $("#rungs");
+  for (const [key, ceil, title, blurb] of ORIGINS){
+    const r = el("div", "rung");
+    r.style.setProperty("--c", COLOUR[key]);
+    r.innerHTML =
+      `<b>${esc(title)}</b><i>${ceil.toFixed(2)}</i><small>${esc(blurb)}</small>`;
+    r.style.borderLeft = "0";
+    const bar = el("span");
+    bar.style.cssText =
+      `position:absolute;left:0;top:0;bottom:0;width:3px;background:${COLOUR[key]}`;
+    r.appendChild(bar);
+    host.appendChild(r);
+  }
+})();
+
+/* -- health -------------------------------------------------------------- */
+async function health(){
+  const set = (id, on) => {
+    const d = $(id);
+    d.className = "dot " + (on ? "on" : "off");
+  };
+  try{
+    const r = await fetch(API + "/health");
+    if (!r.ok) throw new Error(r.status);
+    const h = await r.json();
+    set("#d-api", true);
+    set("#d-db", h.database);
+    set("#d-cache", h.cache);
+    set("#d-llm", h.llm);
+    if (h.llm){
+      $("#f-llm").disabled = false;
+      $("#f-llm").checked = true;
+      $("#llm-switch").classList.remove("muted");
+    }
+  }catch{
+    set("#d-api", false);
+    ["#d-db","#d-cache","#d-llm"].forEach(i => set(i, false));
+  }
+}
+health();
+
+/* -- tabs ---------------------------------------------------------------- */
+let mode = "single";
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    mode = tab.dataset.mode;
+    document.querySelectorAll(".tab").forEach(t =>
+      t.setAttribute("aria-selected", String(t === tab)));
+    $("#pane-single").hidden    = mode !== "single";
+    $("#pane-catalogue").hidden = mode !== "catalogue";
+    $("#examples").hidden       = mode !== "single";
+    $("#go").textContent        = mode === "single" ? "Analyse" : "Analyse catalogue";
+  });
+});
+
+document.querySelectorAll(".chip").forEach(c =>
+  c.addEventListener("click", () => { $("#f-name").value = c.dataset.ex; $("#f-name").focus(); }));
+
+/* -- helpers ------------------------------------------------------------- */
+function parseAttributes(text){
+  const out = {};
+  for (const line of (text || "").split("\n")){
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const i = t.search(/[:=]/);
+    if (i < 1) continue;                      // no separator: not an attribute
+    out[t.slice(0, i).trim()] = t.slice(i + 1).trim();
+  }
+  return out;
+}
+
+const fmt = v => typeof v === "number"
+  ? (Number.isInteger(v) ? v.toLocaleString() : String(v))
+  : String(v ?? "");
+
+const norm = s => String(s ?? "").toLowerCase().replace(/[\s_-]+/g, "");
+
+/* Show the original wording only when it genuinely differs. "cast iron" ->
+   "Cast Iron" tells the reader nothing; "11kW" -> 11000 tells them a lot. */
+function rawWorthShowing(field){
+  if (!field.raw) return null;
+  return norm(field.raw) === norm(field.value) ? null : String(field.raw);
+}
+
+function firstEvidence(field){
+  const e = (field.evidence || [])[0];
+  return e ? (e.detail || "") : "";
+}
+
+/* -- rendering ----------------------------------------------------------- */
+
+function specBlock(specs){
+  const b = el("div", "block");
+  const keys = Object.keys(specs).sort(
+    (a, z) => (specs[z].confidence || 0) - (specs[a].confidence || 0));
+
+  b.innerHTML = `<h4>Specifications <em>${keys.length} field${keys.length === 1 ? "" : "s"}, strongest first</em></h4>`;
+
+  if (!keys.length){
+    const n = el("div", "note");
+    n.innerHTML = "<b>No specifications were found.</b> Nothing in the text matched a known measurement, so nothing was invented.";
+    b.appendChild(n);
+    return b;
+  }
+
+  for (const k of keys){
+    const f = specs[k];
+    const origin = f.origin || "default";
+    const conf = Number(f.confidence || 0);
+    const ceil = CEILING[origin] ?? 1;
+    const colour = COLOUR[origin] || "var(--o-default)";
+
+    const row = el("div", "spec");
+
+    const kc = el("div", "spec-k");
+    kc.textContent = k.replace(/_/g, " ");
+
+    const vc = el("div", "spec-v");
+    const why = firstEvidence(f);
+    vc.innerHTML =
+      `<div class="spec-top">
+         <span class="val">${esc(fmt(f.value))}</span>
+         ${f.unit ? `<span class="unit">${esc(f.unit)}</span>` : ""}
+         ${rawWorthShowing(f) ? `<span class="unit">read as “${esc(rawWorthShowing(f))}”</span>` : ""}
+         <span class="pill" style="background:${colour}">${esc(origin)}</span>
+       </div>
+       <div class="gauge" role="img"
+            aria-label="Confidence ${conf.toFixed(2)} of a possible ${ceil.toFixed(2)} for a ${esc(origin)} value">
+         <i style="width:${(conf * 100).toFixed(1)}%;background:${colour}"></i>
+         <u style="left:calc(${(ceil * 100).toFixed(1)}% - 1px)"></u>
+       </div>
+       <div class="gauge-l"><span>confidence ${conf.toFixed(2)}</span><span>ceiling ${ceil.toFixed(2)}</span></div>
+       ${why ? `<div class="why">${esc(why)}</div>` : ""}`;
+
+    row.append(kc, vc);
+    b.appendChild(row);
+  }
+  return b;
+}
+
+function findingsBlock(v){
+  const list = v.findings || [];
+  const b = el("div", "block");
+  const c = v.counts || {};
+  const summary = ["critical","major","minor","info"]
+    .filter(s => c[s]).map(s => `${c[s]} ${s}`).join(" · ");
+
+  b.innerHTML = `<h4>Checks <em>${esc(v.status || "")}${summary ? " — " + esc(summary) : ""}</em></h4>`;
+
+  if (!list.length){
+    const n = el("div", "note");
+    n.innerHTML = "<b>Everything checked out.</b> No rule raised a problem with this record.";
+    b.appendChild(n);
+    return b;
+  }
+  const order = { critical: 0, major: 1, minor: 2, info: 3 };
+  for (const f of [...list].sort((a, z) => (order[a.severity] ?? 9) - (order[z.severity] ?? 9))){
+    const d = el("div", "finding " + (f.severity || "info"));
+    d.innerHTML =
+      `<b>${esc(f.message || "")}</b>
+       <p>${f.suggestion ? esc(f.suggestion) : ""}</p>
+       <p class="rid">${esc(f.rule_id || "")}${f.field ? " · " + esc(f.field) : ""}</p>`;
+    b.appendChild(d);
+  }
+  return b;
+}
+
+function renderSingle(r){
+  const out = $("#out");
+  out.innerHTML = "";
+
+  const cat = r.category || {};
+  const m = r.metrics || {};
+  const v = r.validation || {};
+  const p = r.platform || {};
+
+  const head = el("div", "resulthead");
+  head.innerHTML =
+    `<h3>${esc(r.name || "")}</h3>
+     <div class="path">${(r.category_path || [cat.value]).filter(Boolean).map(esc).join(' <span>›</span> ')}</div>
+     <div class="metrics">
+       <div class="metric"><b>${(m.spec_count ?? 0)}</b><span>specifications</span></div>
+       <div class="metric"><b>${((m.mean_confidence ?? 0)).toFixed(2)}</b><span>mean confidence</span></div>
+       <div class="metric"><b>${Math.round((m.completeness ?? 0) * 100)}%</b><span>complete</span></div>
+       <div class="metric"><b>${((v.score ?? 0)).toFixed(2)}</b><span>check score</span></div>
+     </div>`;
+  out.appendChild(head);
+
+  const desc = r.enriched_description && r.enriched_description.value;
+  if (desc){
+    const b = el("div", "block");
+    b.innerHTML = `<h4>Description <em>${esc(r.enriched_description.origin || "")}</em></h4>
+                   <div class="prose">${esc(desc)}</div>`;
+    out.appendChild(b);
+  }
+
+  out.appendChild(specBlock(r.specifications || {}));
+  out.appendChild(findingsBlock(v));
+
+  const alts = r.category_alternatives || [];
+  if (alts.length){
+    const b = el("div", "block");
+    b.innerHTML = `<h4>Category <em>chose ${esc(cat.value || "")} at ${(cat.confidence ?? 0).toFixed(2)}</em></h4>
+      <table class="cat"><thead><tr><th>Considered</th><th class="num">Score</th></tr></thead><tbody>${
+        alts.map(a => `<tr><td>${esc(a.category || a.value || a.name || "")}</td><td class="num">${
+          typeof a.score === "number" ? a.score.toFixed(2) : esc(a.score ?? "")}</td></tr>`).join("")
+      }</tbody></table>`;
+    out.appendChild(b);
+  }
+
+  const kws = r.keywords || [];
+  if (kws.length){
+    const b = el("div", "block");
+    b.innerHTML = `<h4>Keywords</h4><div class="tags">${
+      kws.map(k => `<span class="tag">${esc(k)}</span>`).join("")}</div>`;
+    out.appendChild(b);
+  }
+
+  const dupes = p.duplicates || [];
+  if (dupes.length){
+    const b = el("div", "block");
+    b.innerHTML = `<h4>Possible duplicates <em>similar text, and no contradicting measurement</em></h4>
+      <table class="cat"><thead><tr><th>Stored product</th><th class="num">Similarity</th></tr></thead><tbody>${
+        dupes.map(d => `<tr><td>${esc(d.name || "")}</td><td class="num">${
+          (d.score ?? 0).toFixed(2)}</td></tr>`).join("")}</tbody></table>`;
+    out.appendChild(b);
+  }
+
+  const b = el("div", "block");
+  b.innerHTML = `<h4>This run</h4><div class="note">
+    Result was ${p.cache === "hit" ? "<b>served from cache</b>" : "<b>computed now</b>"}.
+    ${p.persisted_id ? "Saved to storage." : "Not saved."}
+    ${p.llm_used ? "The local model was consulted." : "No model was used — this run is reproducible."}
+  </div>`;
+  out.appendChild(b);
+
+  attachDownload(out, r, (r.name || "product").replace(/[^\w.-]+/g, "_"));
+}
+
+function renderCatalogue(batch){
+  const out = $("#out");
+  out.innerHTML = "";
+  const products = batch.products || [];
+  const s = batch.summary || {};
+
+  const head = el("div", "resulthead");
+  head.innerHTML =
+    `<h3>${products.length} product${products.length === 1 ? "" : "s"} analysed</h3>
+     <div class="metrics">
+       <div class="metric"><b>${s.valid ?? 0}</b><span>passed checks</span></div>
+       <div class="metric"><b>${s.invalid ?? 0}</b><span>need attention</span></div>
+       <div class="metric"><b>${((s.mean_validation_score ?? 0)).toFixed(2)}</b><span>mean score</span></div>
+       <div class="metric"><b>${Math.round((s.mean_completeness ?? 0) * 100)}%</b><span>mean complete</span></div>
+     </div>`;
+  out.appendChild(head);
+
+  const b = el("div", "block");
+  b.innerHTML = `<h4>Records <em>select a row to see its fields</em></h4>`;
+  const table = el("table", "cat");
+  table.innerHTML = `<thead><tr>
+      <th>Product</th><th>Category</th><th class="num">Specs</th><th class="num">Score</th>
+    </tr></thead>`;
+  const tbody = el("tbody");
+
+  products.forEach((p, i) => {
+    const bad = !((p.validation || {}).is_valid);
+    const tr = el("tr", "pick" + (bad ? " bad" : ""));
+    tr.tabIndex = 0;
+    tr.setAttribute("role", "button");
+    tr.setAttribute("aria-expanded", "false");
+    tr.innerHTML =
+      `<td>${esc(p.name || "")}</td>
+       <td>${esc((p.category && p.category.value) || "")}</td>
+       <td class="num">${Object.keys(p.specifications || {}).length}</td>
+       <td class="num">${(((p.validation || {}).score) ?? 0).toFixed(2)}</td>`;
+
+    const detail = el("tr", "detail");
+    detail.hidden = true;
+    const cell = el("td");
+    cell.colSpan = 4;
+    detail.appendChild(cell);
+
+    let built = false;
+    const toggle = () => {
+      const open = detail.hidden;
+      if (open && !built){
+        cell.appendChild(specBlock(p.specifications || {}));
+        cell.appendChild(findingsBlock(p.validation || {}));
+        built = true;
+      }
+      detail.hidden = !open;
+      tr.setAttribute("aria-expanded", String(open));
+    };
+
+    tr.addEventListener("click", toggle);
+    tr.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " "){ e.preventDefault(); toggle(); }
+    });
+
+    tbody.append(tr, detail);
+  });
+
+  table.appendChild(tbody);
+  b.appendChild(table);
+  out.appendChild(b);
+
+  const cc = batch.catalog_consistency;
+  if (cc){
+    const issues = cc.findings || cc.issues || [];
+    const c = el("div", "block");
+    c.innerHTML = `<h4>Across the whole set <em>contradictions no single record can show</em></h4>`;
+    if (!issues.length){
+      const n = el("div", "note");
+      n.innerHTML = "<b>No contradictions between records.</b> Nothing in one record disagrees with another.";
+      c.appendChild(n);
+    } else {
+      for (const f of issues){
+        const d = el("div", "finding " + (f.severity || "info"));
+        d.innerHTML = `<b>${esc(f.message || "")}</b>
+                       <p class="rid">${esc(f.rule_id || "")}</p>`;
+        c.appendChild(d);
+      }
+    }
+    out.appendChild(c);
+  }
+
+  attachDownload(out, batch, "catalogue");
+}
+
+function attachDownload(out, data, stem){
+  const b = el("div", "block");
+  b.innerHTML = "<h4>Take it with you</h4>";
+  const wrap = el("div", "dl");
+
+  const json = el("a");
+  json.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  json.download = stem + ".json";
+  json.textContent = "Download JSON";
+  wrap.appendChild(json);
+
+  const rows = data.products || [data];
+  const csv = el("a");
+  csv.href = URL.createObjectURL(new Blob([toCsv(rows)], { type: "text/csv" }));
+  csv.download = stem + ".csv";
+  csv.textContent = "Download CSV";
+  wrap.appendChild(csv);
+
+  b.appendChild(wrap);
+  out.appendChild(b);
+}
+
+/* Flatten to one row per product, with a column per specification. The union
+   of columns is used so a product missing a field leaves a blank rather than
+   shifting every later column. */
+function toCsv(products){
+  const cols = new Set(["name", "category", "validation_score"]);
+  const flat = products.map(p => {
+    const row = {
+      name: p.name || "",
+      category: (p.category && p.category.value) || "",
+      validation_score: ((p.validation || {}).score) ?? ""
+    };
+    for (const [k, f] of Object.entries(p.specifications || {})){
+      row[k] = f.unit ? `${f.value} ${f.unit}` : f.value;
+      row[k + "__origin"] = f.origin;
+      cols.add(k); cols.add(k + "__origin");
+    }
+    return row;
+  });
+  const head = [...cols];
+  const cell = v => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [head.join(","), ...flat.map(r => head.map(h => cell(r[h])).join(","))].join("\n");
+}
+
+function showError(title, detail){
+  $("#out").innerHTML =
+    `<div class="err"><b>${esc(title)}</b><p>${detail}</p></div>`;
+}
+
+/* -- submit -------------------------------------------------------------- */
+$("#form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const go = $("#go");
+  const persist = $("#f-persist").checked;
+  const useLlm = $("#f-llm").checked;
+
+  let url, body, single;
+  if (mode === "single"){
+    const name = $("#f-name").value.trim();
+    if (!name){
+      showError("Add a product name", "There is nothing to analyse yet. Type a name, or pick one of the examples.");
+      $("#f-name").focus();
+      return;
+    }
+    single = true;
+    url = "/enrich";
+    body = {
+      name,
+      description: $("#f-desc").value.trim(),
+      attributes: parseAttributes($("#f-attrs").value),
+      persist,
+      use_llm: useLlm
+    };
+  } else {
+    const names = $("#f-list").value.split("\n").map(s => s.trim()).filter(Boolean);
+    if (!names.length){
+      showError("Add some products", "Enter at least one product name, one per line.");
+      $("#f-list").focus();
+      return;
+    }
+    single = false;
+    url = "/catalogue";
+    body = { products: names.map(n => ({ name: n })), persist, use_llm: useLlm };
+  }
+
+  go.disabled = true;
+  const label = go.textContent;
+  go.textContent = "Working";
+  $("#out").innerHTML = `<div class="working">Analysing</div>`;
+
+  try{
+    const res = await fetch(API + url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok){
+      let detail = `The API returned ${res.status}.`;
+      try{
+        const j = await res.json();
+        if (j.detail) detail = typeof j.detail === "string"
+          ? esc(j.detail)
+          : esc(JSON.stringify(j.detail));
+      }catch{ /* body was not JSON; the status is all we have */ }
+      showError("That request did not go through", detail);
+      return;
+    }
+
+    const data = await res.json();
+    single ? renderSingle(data) : renderCatalogue(data);
+    health();
+  }catch(err){
+    showError(
+      "Cannot reach the API",
+      `Start it with <code>uvicorn pi_platform.api:app</code>, or bring the stack up with ` +
+      `<code>docker compose --profile full up</code>. (${esc(err.message)})`
+    );
+  }finally{
+    go.disabled = false;
+    go.textContent = label;
+  }
+});
+</script>
+</body>
+</html>

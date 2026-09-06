@@ -1,0 +1,7 @@
+-r requirements.txt
+
+pytest>=8.0.0
+# Required by pytest.ini's `asyncio_mode = auto`. Without it pytest warns
+# "Unknown config option: asyncio_mode" and every `async def` test is silently
+# not run — the suite looks green while testing nothing asynchronous.
+pytest-asyncio>=0.23
