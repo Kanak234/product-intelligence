@@ -1,13 +1,50 @@
 name: CI
-on: [push, pull_request]
+
+# This workflow validates both the core engine and optional platform layer.
+# It must fail on real test failures so a green status is meaningful.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
-      - run: |
-          pip install pytest
-          pip install -r requirements-dev.txt -r requirements-platform.txt || pip install -r requirements.txt
-      - run: pytest -q
+      # Validate the exact committed source tree used for releases.
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Install the development and platform dependencies when those manifests
+      # exist; otherwise fall back to the application's minimal requirements.
+      # This preserves the repository's documented degraded-mode behavior.
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+          if [ -f requirements-dev.txt ] && [ -f requirements-platform.txt ]; then
+            python -m pip install -r requirements-dev.txt -r requirements-platform.txt
+          else
+            python -m pip install -r requirements.txt
+          fi
+
+      # Run the complete test suite without hiding failures behind a shell fallback.
+      # Optional service-dependent tests may still skip according to the project's
+      # own test design.
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+      # Parse all project Python sources without executing application code.
+      # This catches syntax regressions even when an optional service test skips.
+      - name: Validate Python syntax
+        run: python -m compileall -q .
